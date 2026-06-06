@@ -9,7 +9,7 @@ import { db } from "ponder:api";
 import schema from "ponder:schema";
 import { IS_DEV } from "../constants/dev";
 import { NETWORKS } from "../constants/networks";
-import { ALLOWED_ORIGINS } from "../constants/origins";
+import { allowedCorsOrigin } from "../constants/origins";
 import { getBsStatus } from "../lib/getBsStatus";
 import { keyAuthMiddleware } from "../middleware/keyAuth";
 import { rateLimitMiddleware } from "../middleware/rateLimit";
@@ -165,14 +165,16 @@ if (process.env.NODE_ENV !== "development") {
 }
 app.use("/schema", graphql({ db, schema }));
 
-app.post("/graphql", cors({ origin: ALLOWED_ORIGINS }));
-app.post("/participants", cors({ origin: ALLOWED_ORIGINS }));
+app.post("/graphql", cors({ origin: allowedCorsOrigin }));
+app.post("/participants", cors({ origin: allowedCorsOrigin }));
 
 app.post("/graphql", graphql({ db, schema }));
+app.post("/:key/graphql", cors({ origin: allowedCorsOrigin }));
 app.post("/:key/graphql", keyAuthMiddleware);
 app.post("/:key/graphql", graphql({ db, schema }));
 
 app.post("/participants", getParticipantSnapshots);
+app.post("/:key/participants", cors({ origin: allowedCorsOrigin }));
 app.post("/:key/participants", keyAuthMiddleware);
 app.post("/:key/participants", getParticipantSnapshots);
 
