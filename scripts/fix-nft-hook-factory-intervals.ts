@@ -83,6 +83,12 @@
  *   npx tsx scripts/fix-nft-hook-factory-intervals.ts --apply
  *   npx tsx scripts/fix-nft-hook-factory-intervals.ts --testnet --apply
  *
+ *   # Clear ALL hook-factory fragments even when every hook is tracked
+ *   # (heals events lost inside falsely-complete ranges — e.g. ranges a
+ *   # pre-0.17 build kept marking complete while it ran WITHOUT a child
+ *   # during a deploy cutover; the untracked diff can't see those):
+ *   npx tsx scripts/fix-nft-hook-factory-intervals.ts --force --apply
+ *
  *   # Then restart / redeploy the indexer so historical sync re-runs, and
  *   # re-run the dry run to confirm the untracked count has dropped to 0.
  * ----------------------------------------------------------------------------
@@ -110,6 +116,7 @@ const DEPLOYER_BY_VERSION: Record<number, string> = {
 
 const APPLY = process.argv.includes("--apply");
 const TESTNET = process.argv.includes("--testnet");
+const FORCE = process.argv.includes("--force");
 
 /**
  * Matches every interval fragment tied to one deployer: the discovery fragment
@@ -206,12 +213,26 @@ async function main() {
       `${untracked.length} hook(s) UNTRACKED — their events can never be indexed.\n`
     );
 
-    if (untracked.length === 0) {
-      console.log("Nothing to repair.\n");
+    if (untracked.length === 0 && !FORCE) {
+      console.log(
+        "Nothing to repair by the untracked-hook diff. NOTE: this diff cannot\n" +
+          "see events lost inside falsely-complete interval ranges of a hook\n" +
+          "that is NOW tracked (e.g. ranges a pre-0.17 build marked complete\n" +
+          "while it was still running without the child). If on-chain state\n" +
+          "disagrees with indexed rows for a tracked hook, re-run with --force\n" +
+          "to clear every hook-factory fragment and refetch from scratch.\n"
+      );
       return;
     }
 
-    const affectedVersions = [...new Set(untracked.map((h) => h.version))].sort();
+    const affectedVersions = FORCE
+      ? [...new Set(hooks.map((h) => h.version))].sort()
+      : [...new Set(untracked.map((h) => h.version))].sort();
+    if (FORCE) {
+      console.log(
+        `--force: clearing fragments for ALL hook versions present (${affectedVersions.join(", ")}), regardless of the untracked diff.\n`
+      );
+    }
     for (const version of affectedVersions) {
       const list = untracked.filter((h) => h.version === version);
       console.log(`  version ${version}: ${list.length} untracked`);
