@@ -118,6 +118,45 @@ const APPLY = process.argv.includes("--apply");
 const TESTNET = process.argv.includes("--testnet");
 const FORCE = process.argv.includes("--force");
 
+const flagValue = (name: string) => {
+  const i = process.argv.indexOf(name);
+  return i === -1 ? undefined : process.argv[i + 1];
+};
+
+/**
+ * Window mode: `--chain <id> --from <block> --to <block>`.
+ *
+ * Subtracts the block range from every hook-factory fragment on that chain
+ * instead of deleting the fragments outright, so Ponder refetches only that
+ * window. This is the targeted remedy for a deploy cutover, where an old build
+ * kept stamping realtime ranges complete while running without a child address:
+ * the hooks end up tracked (so the untracked diff is clean) but events inside
+ * the cutover window were never fetched.
+ *
+ * Prefer this over `--force`, which discards whole fragments back to each
+ * version's start block — on mainnet that is >3.3B blocks of refetch across
+ * v4/v5/v6, versus a few thousand here.
+ */
+const WINDOW = (() => {
+  const chain = flagValue("--chain");
+  const from = flagValue("--from");
+  const to = flagValue("--to");
+  if (chain === undefined && from === undefined && to === undefined) {
+    return undefined;
+  }
+  if (chain === undefined || from === undefined || to === undefined) {
+    throw new Error("Window mode requires --chain, --from and --to together");
+  }
+  const parsed = { chain, from: Number(from), to: Number(to) };
+  if (!Number.isInteger(parsed.from) || !Number.isInteger(parsed.to)) {
+    throw new Error("--from and --to must be integers");
+  }
+  if (parsed.to <= parsed.from) {
+    throw new Error("--to must be greater than --from");
+  }
+  return parsed;
+})();
+
 /**
  * Matches every interval fragment tied to one deployer: the discovery fragment
  * (`factory_log_<chain>_<deployer>_<selector>_…`) and each child-event log
@@ -173,7 +212,14 @@ async function main() {
     throw new Error(`Missing ${envVar} in .env.local`);
   }
 
-  const db = new Client({ connectionString });
+  // Fail fast instead of hanging forever: the Railway proxy can leave a
+  // connection open with no server-side query, which looks identical to a lock
+  // wait but never resolves.
+  const db = new Client({
+    connectionString,
+    connectionTimeoutMillis: 15_000,
+    statement_timeout: 120_000,
+  });
   await db.connect();
 
   try {
@@ -213,14 +259,22 @@ async function main() {
       `${untracked.length} hook(s) UNTRACKED — their events can never be indexed.\n`
     );
 
+    if (WINDOW) {
+      await repairWindow(db, envVar);
+      return;
+    }
+
     if (untracked.length === 0 && !FORCE) {
       console.log(
         "Nothing to repair by the untracked-hook diff. NOTE: this diff cannot\n" +
           "see events lost inside falsely-complete interval ranges of a hook\n" +
           "that is NOW tracked (e.g. ranges a pre-0.17 build marked complete\n" +
           "while it was still running without the child). If on-chain state\n" +
-          "disagrees with indexed rows for a tracked hook, re-run with --force\n" +
-          "to clear every hook-factory fragment and refetch from scratch.\n"
+          "disagrees with indexed rows for a tracked hook, re-run with\n" +
+          "  --chain <id> --from <block> --to <block>\n" +
+          "to refetch just that window (cheap), or --force to discard every\n" +
+          "hook-factory fragment back to each version's start block (very\n" +
+          "expensive — see the warning it prints).\n"
       );
       return;
     }
@@ -229,13 +283,25 @@ async function main() {
       ? [...new Set(hooks.map((h) => h.version))].sort()
       : [...new Set(untracked.map((h) => h.version))].sort();
     if (FORCE) {
+      const { rows: cost } = await db.query<{ blocks: string }>(
+        `SELECT COALESCE(SUM(upper(b) - lower(b)), 0)::text AS blocks
+           FROM ponder_sync.intervals, unnest(blocks) b
+          WHERE ${affectedVersions
+            .map((_, i) => `fragment_id LIKE $${i + 1} ESCAPE '\\'`)
+            .join(" OR ")}`,
+        affectedVersions.map((v) => fragmentPattern(DEPLOYER_BY_VERSION[v]!))
+      );
       console.log(
-        `--force: clearing fragments for ALL hook versions present (${affectedVersions.join(", ")}), regardless of the untracked diff.\n`
+        `--force: clearing fragments for ALL hook versions present (${affectedVersions.join(", ")}), regardless of the untracked diff.\n` +
+          `⚠️  This discards ${Number(cost[0]?.blocks ?? 0).toLocaleString()} blocks of cached coverage and refetches them from the RPC.\n` +
+          `    If you are healing a deploy cutover, --chain/--from/--to is orders of magnitude cheaper.\n`
       );
     }
     for (const version of affectedVersions) {
       const list = untracked.filter((h) => h.version === version);
-      console.log(`  version ${version}: ${list.length} untracked`);
+      console.log(
+        `  version ${version}: ${list.length} untracked${FORCE && list.length === 0 ? " (cleared anyway by --force)" : ""}`
+      );
       for (const h of list) {
         console.log(
           `    chain ${h.chain_id.padEnd(9)} project ${String(h.project_id).padEnd(6)} ${h.address}`
@@ -328,6 +394,102 @@ async function main() {
   } finally {
     await db.end();
   }
+}
+
+/**
+ * Window mode: punch a hole in every hook-factory fragment on one chain rather
+ * than deleting the fragments. `blocks` is a `nummultirange`, so subtracting a
+ * range leaves all other coverage intact and Ponder refetches only the hole.
+ */
+async function repairWindow(db: pg.Client, envVar: string) {
+  const { chain, from, to } = WINDOW!;
+  const patterns = Object.values(DEPLOYER_BY_VERSION).map(fragmentPattern);
+  const range = `{[${from},${to})}`;
+
+  const where = `chain_id = $${patterns.length + 1} AND (${patterns
+    .map((_, i) => `fragment_id LIKE $${i + 1} ESCAPE '\\'`)
+    .join(" OR ")})`;
+
+  const { rows } = await db.query<{
+    fragment_id: string;
+    before: string;
+    after: string;
+    delta: string;
+  }>(
+    `SELECT fragment_id,
+            blocks::text AS before,
+            (blocks - $${patterns.length + 2}::nummultirange)::text AS after,
+            ((SELECT COALESCE(SUM(upper(b) - lower(b)), 0) FROM unnest(blocks) b)
+           - (SELECT COALESCE(SUM(upper(b) - lower(b)), 0)
+                FROM unnest(blocks - $${patterns.length + 2}::nummultirange) b))::text AS delta
+       FROM ponder_sync.intervals
+      WHERE ${where}
+      ORDER BY fragment_id`,
+    [...patterns, chain, range]
+  );
+
+  const affected = rows.filter((r) => Number(r.delta) > 0);
+  console.log(
+    `Window mode: subtracting [${from}, ${to}) from hook-factory fragments on chain ${chain}.\n`
+  );
+  console.log(
+    `${rows.length} fragment(s) on this chain, ${affected.length} overlap the window:\n`
+  );
+  for (const r of affected) {
+    const kind = r.fragment_id.startsWith("factory_log_")
+      ? "discovery"
+      : "child-log";
+    console.log(`  [${kind}] -${r.delta} blocks`);
+    console.log(`             ${r.after}`);
+  }
+
+  if (affected.length === 0) {
+    console.log(
+      "\nNo fragment covers that window — nothing to refetch. Check --chain/--from/--to.\n"
+    );
+    return;
+  }
+
+  const totalBlocks = affected.reduce((sum, r) => sum + Number(r.delta), 0);
+  console.log(
+    `\nTotal coverage removed: ${totalBlocks.toLocaleString()} blocks (refetched on next fresh-schema deploy).`
+  );
+
+  if (!APPLY) {
+    console.log(
+      `\nDRY RUN — no changes made. Re-run with --apply to back up and subtract.\n`
+    );
+    printNextSteps();
+    return;
+  }
+
+  const ts = new Date().toISOString().replace(/[:.]/g, "-");
+  const backupPath = `./ponder-nft-hook-intervals-window-${TESTNET ? "testnet" : "mainnet"}-${ts}.sql`;
+  writeFileSync(
+    backupPath,
+    buildBackupSql(
+      affected.map((r) => ({
+        fragment_id: r.fragment_id,
+        chain_id: chain,
+        blocks: r.before,
+      })),
+      []
+    )
+  );
+  console.log(`\n📦 Backup of ${affected.length} row(s) written to ${backupPath}`);
+  console.log(`   To restore: psql "$${envVar}" -f ${backupPath}\n`);
+
+  const { rowCount } = await db.query(
+    `UPDATE ponder_sync.intervals
+        SET blocks = blocks - $${patterns.length + 2}::nummultirange
+      WHERE ${where}`,
+    [...patterns, chain, range]
+  );
+  console.log(`✂️  Updated ${rowCount} fragment(s).`);
+  console.log(
+    `\n✅ Done. Ponder will refetch [${from}, ${to}) on chain ${chain} on next start.\n`
+  );
+  printNextSteps();
 }
 
 /** Emit an idempotent restore file (re-inserts the exact rows we delete). */
