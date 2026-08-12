@@ -91,6 +91,21 @@
  *
  *   # Then restart / redeploy the indexer so historical sync re-runs, and
  *   # re-run the dry run to confirm the untracked count has dropped to 0.
+ *
+ *
+ * ORDERING (this bites)
+ *
+ * `--apply` MUST land before the deploy boots. Ponder reads the interval table
+ * once per run, in `getCachedIntervals` at startup; it never re-reads it. A
+ * deploy that booted before the repair sees the old coverage, decides the range
+ * is already synced, and finishes without refetching — leaving the repair in
+ * place, untouched, and doing nothing. The tell is a finished run (`is_ready=1`)
+ * with the hole still open, i.e. the fragments still do NOT cover the blocks you
+ * cleared.
+ *
+ * So: apply first, then push. And because DATABASE_SCHEMA is the git SHA, it has
+ * to be a NEW commit — redeploying the same SHA reuses that schema, resumes from
+ * its crash-recovery checkpoint, and skips historical sync entirely.
  * ----------------------------------------------------------------------------
  */
 
