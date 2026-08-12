@@ -397,6 +397,32 @@ async function main() {
 }
 
 /**
+ * Ponder parses `blocks` with `JSON.parse('[' + text.slice(1, -1) + ']')`
+ * (sync-store/index.ts), so the ONLY representation it can read is
+ * `{[a,b],[c,d]}` — every bound inclusive. A raw multirange subtraction yields a
+ * half-open left piece (`[a,b)`), whose `)` is invalid JSON and crashes the
+ * indexer at startup in `getIntervals`.
+ *
+ * Normalizing `)` to `]` is also semantically exact here: Ponder reads a stored
+ * `[a,b]` as the real interval `[a, b-1]`, so stored `[a,F]` and numeric
+ * `[a,F)` denote the same set of integer blocks. Subtracting a half-open
+ * `[from,to)` only ever produces `)` on the left piece and never an exclusive
+ * lower bound `(` on the right, so this rewrite is closed over our inputs.
+ */
+const INCLUSIVE_MULTIRANGE = /^\{\[\d+,\d+\](,\[\d+,\d+\])*\}$/;
+
+const normalizeMultirange = (text: string) => {
+  const normalized = text.replace(/\)/g, "]");
+  if (!INCLUSIVE_MULTIRANGE.test(normalized)) {
+    throw new Error(
+      `Refusing to write unparseable multirange ${normalized}. Ponder can only ` +
+        `read fully-inclusive '{[a,b],...}' form.`
+    );
+  }
+  return normalized;
+};
+
+/**
  * Window mode: punch a hole in every hook-factory fragment on one chain rather
  * than deleting the fragments. `blocks` is a `nummultirange`, so subtracting a
  * range leaves all other coverage intact and Ponder refetches only the hole.
@@ -439,8 +465,10 @@ async function repairWindow(db: pg.Client, envVar: string) {
     const kind = r.fragment_id.startsWith("factory_log_")
       ? "discovery"
       : "child-log";
+    // Show the normalized form — that is what would actually be written, and
+    // it also exercises the guard during a dry run.
     console.log(`  [${kind}] -${r.delta} blocks`);
-    console.log(`             ${r.after}`);
+    console.log(`             ${normalizeMultirange(r.after)}`);
   }
 
   if (affected.length === 0) {
@@ -479,13 +507,32 @@ async function repairWindow(db: pg.Client, envVar: string) {
   console.log(`\n📦 Backup of ${affected.length} row(s) written to ${backupPath}`);
   console.log(`   To restore: psql "$${envVar}" -f ${backupPath}\n`);
 
-  const { rowCount } = await db.query(
-    `UPDATE ponder_sync.intervals
-        SET blocks = blocks - $${patterns.length + 2}::nummultirange
-      WHERE ${where}`,
-    [...patterns, chain, range]
+  // Write each row explicitly in Ponder-readable inclusive form. `normalizeMultirange`
+  // throws before any write if the result is not `{[a,b],...}`, so a representation
+  // Ponder cannot parse can never reach the database.
+  let updated = 0;
+  for (const r of affected) {
+    await db.query(
+      `UPDATE ponder_sync.intervals SET blocks = $1::nummultirange WHERE fragment_id = $2`,
+      [normalizeMultirange(r.after), r.fragment_id]
+    );
+    updated += 1;
+  }
+  console.log(`✂️  Updated ${updated} fragment(s).`);
+
+  // Verify nothing unparseable survived, on this chain or any other.
+  const { rows: bad } = await db.query<{ n: string }>(
+    `SELECT count(*)::text AS n FROM ponder_sync.intervals
+      WHERE blocks::text LIKE '%(%' OR blocks::text LIKE '%)%'`
   );
-  console.log(`✂️  Updated ${rowCount} fragment(s).`);
+  if (Number(bad[0]!.n) > 0) {
+    throw new Error(
+      `${bad[0]!.n} interval row(s) contain non-inclusive bounds and will crash ` +
+        `Ponder's getIntervals at startup. Restore from ${backupPath} immediately.`
+    );
+  }
+  console.log(`   verified: 0 rows with non-inclusive bounds`);
+
   console.log(
     `\n✅ Done. Ponder will refetch [${from}, ${to}) on chain ${chain} on next start.\n`
   );
