@@ -290,6 +290,10 @@ export const addToBalanceEvent = onchainTable("add_to_balance_event", (t) => ({
   ...projectId(t),
   ...suckerGroupId(t),
   amount: t.bigint().notNull(),
+  // 18-dec USD value of `amount` at this block. Payments carry amountUsd, and
+  // "inflows = volume + Σ addToBalance" needs the same for direct additions —
+  // without it, clients can only misvalue historical adds at a present rate.
+  amountUsd: t.bigint().notNull().default(BigInt(0)),
   memo: t.text(),
   metadata: t.hex().notNull(),
   returnedFees: t.bigint().notNull(),
@@ -1238,12 +1242,23 @@ export const project = onchainTable(
     creator: t.hex().notNull(),
     paymentsCount: t.integer().notNull().default(0),
     redeemCount: t.integer().notNull().default(0),
+    // Raw `volume`/`balance` accrue in whatever accounting context is in force
+    // at each event, so their units follow SetAccountingContext: a project that
+    // switches (say USDC → ETH) carries a cumulative raw number that MIXES
+    // 6-dec and 18-dec eras and cannot be valued by any single rate. Use the
+    // *Usd twins for anything cross-era; they accrue each delta at its own
+    // block's rate, in 18-dec USD, regardless of token decimals.
     volume: t.bigint().notNull().default(BigInt(0)),
     volumeUsd: t.bigint().notNull().default(BigInt(0)),
     redeemVolume: t.bigint().notNull().default(BigInt(0)),
     redeemVolumeUsd: t.bigint().notNull().default(BigInt(0)),
     nftsMintedCount: t.integer().notNull().default(0),
     balance: t.bigint().notNull().default(BigInt(0)),
+    // Flow-accrued USD balance: every inflow adds and every outflow subtracts
+    // ITS OWN at-the-block USD value (18-dec). Exact for stable-denominated
+    // contexts and immune to context switches; for volatile accounting tokens
+    // it is a cost-basis figure, not a mark-to-market of the raw balance.
+    balanceUsd: t.bigint().notNull().default(BigInt(0)),
     tokenSupply: t.bigint().notNull().default(BigInt(0)),
     reservedTokenSupply: t.bigint().notNull().default(BigInt(0)),
     trendingScore: t.bigint().notNull().default(BigInt(0)),
@@ -1697,6 +1712,8 @@ export const suckerGroup = onchainTable("sucker_group", (t) => ({
   redeemVolumeUsd: t.bigint().notNull().default(BigInt(0)),
   nftsMintedCount: t.integer().notNull().default(0),
   balance: t.bigint().notNull().default(BigInt(0)),
+  // Sum of the member projects' flow-accrued USD balances; see project.balanceUsd.
+  balanceUsd: t.bigint().notNull().default(BigInt(0)),
   tokenSupply: t.bigint().notNull().default(BigInt(0)),
   reservedTokenSupply: t.bigint().notNull().default(BigInt(0)),
   trendingScore: t.bigint().notNull().default(BigInt(0)),
@@ -1724,6 +1741,10 @@ export const suckerGroupMoment = onchainTable(
     redeemVolumeUsd: t.bigint().notNull().default(BigInt(0)),
     nftsMintedCount: t.integer().notNull().default(0),
     balance: t.bigint().notNull().default(BigInt(0)),
+    // Flow-accrued USD balance at this moment; see project.balanceUsd. Unlike
+    // the raw `balance`, this stays meaningful across accounting-context
+    // switches and mixed-context groups, so it is the series to chart.
+    balanceUsd: t.bigint().notNull().default(BigInt(0)),
     tokenSupply: t.bigint().notNull().default(BigInt(0)),
     reservedTokenSupply: t.bigint().notNull().default(BigInt(0)),
     trendingScore: t.bigint().notNull().default(BigInt(0)),

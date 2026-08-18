@@ -20,13 +20,79 @@ const CURRENCY_USD = BigInt(2);
 // );
 
 /**
- * Gets usd price of a token amount
- * @param context
- * @param version
- * @param projectId
- * @param amount Amount of token to convert
- * @param currency Currency of token to convert, defined by AccountingContext (usually native token)
- * @returns
+ * USD per ONE WHOLE accounting token as an 18-decimal fixed point, for valuing
+ * an amount. 0n when the token cannot be valued (never null: amount valuation
+ * treats "unpriceable" as a zero contribution, matching the *Usd counters).
+ *
+ * Resolution order:
+ * 1. USD-denominated contexts need no feed: the rate IS 1.
+ * 2. The project's on-chain JBPrices feed at THIS block — works for the native
+ *    token and any registered pair (this is the same read that produces
+ *    suckerGroupMoment.accountingTokenUsdRate).
+ * 3. The external price index by token address, when configured.
+ */
+export async function usdRate18ForToken({
+  context,
+  version,
+  projectId,
+  currency,
+  token,
+  timestamp,
+}: {
+  context: Context;
+  version: Version;
+  projectId: bigint;
+  currency: bigint | null;
+  token: Address | null;
+  timestamp: number | bigint;
+}): Promise<bigint> {
+  if (!currency) return BigInt(0);
+
+  const onchain = await usdPerAccountingTokenAtBlock({
+    context,
+    version,
+    projectId,
+    currency,
+  });
+  if (onchain !== null) return onchain;
+
+  if (priceIndexUrl && token && token !== zeroAddress) {
+    try {
+      const res = await axios.get<{ priceUsd: number }>(
+        `${priceIndexUrl}?token=${token}&timestamp=${timestamp}&chainId=${context.chain.id}`
+      );
+
+      const _price = res.data.priceUsd;
+
+      if (!isNaN(_price) && _price > 0) {
+        // Keep 8 decimals of price precision. The previous integer math
+        // (round(p * 1e10) / 1e10 in bigint) floored every sub-$1 price to
+        // ZERO, which silently un-valued stablecoin contexts.
+        return BigInt(Math.round(_price * 1e8)) * BigInt(1e10);
+      }
+    } catch (e) {
+      console.error(
+        `Error: usdRate18ForToken index lookup failed for projectId: ${projectId}, chainId: ${
+          context.chain.id
+        }, version: ${version} - ${(e as Error).message}`
+      );
+    }
+  }
+
+  return BigInt(0);
+}
+
+/**
+ * Values a token amount in USD as an 18-decimal fixed point, REGARDLESS of the
+ * token's own decimals.
+ *
+ * The previous implementation returned `amount * price`, which was only
+ * 18-decimal USD for 18-decimal tokens: a 6-decimal USDC amount came back
+ * scaled by 1e6 — indistinguishable from zero — so USDC-denominated volume,
+ * payouts, and cash outs accrued no USD at all.
+ *
+ * @param amount Amount of token to convert, in the token's own decimals
+ * @param decimals The accounting context's decimals (null falls back to 18)
  */
 export async function usdPriceForToken({
   context,
@@ -35,6 +101,7 @@ export async function usdPriceForToken({
   amount,
   currency,
   token,
+  decimals,
   timestamp,
 }: {
   context: Context;
@@ -43,52 +110,23 @@ export async function usdPriceForToken({
   amount: bigint;
   currency: bigint | null;
   token: Address | null;
+  decimals: number | null;
   timestamp: number | bigint;
 }) {
   if (!currency || !token || token === zeroAddress) return BigInt(0);
 
-  // // just assume stables == 1 usd
-  // if (STABLES.has(token)) return amount;
-
-  let price = BigInt(0);
-
   try {
-    if (currency === CURRENCY_NATIVE) {
-      // IF NATIVE CURRENCY use on-chain price feed for native token conversion
+    const rate = await usdRate18ForToken({
+      context,
+      version,
+      projectId,
+      currency,
+      token,
+      timestamp,
+    });
+    if (rate <= BigInt(0)) return BigInt(0);
 
-      let pricingCurrency = CURRENCY_USD;
-      let unitCurrency = CURRENCY_NATIVE;
-
-      if (version === 4) {
-        // price feed for v4 is inverted by mistake
-        pricingCurrency = CURRENCY_NATIVE;
-        unitCurrency = CURRENCY_USD;
-      }
-
-      // fetch price from on-chain feed
-      const usdPriceWei = await context.client.readContract({
-        abi: JBPricesAbi,
-        address: addressForVersion("jbPrices", version),
-        functionName: "pricePerUnitOf",
-        args: [projectId, pricingCurrency, unitCurrency, BigInt(18)],
-      });
-
-      price = usdPriceWei / BigInt(1e18);
-    } else if (priceIndexUrl) {
-      // IF NON-NATIVE CURRENCY fetch price from index
-
-      const res = await axios.get<{ priceUsd: number }>(
-        `${priceIndexUrl}?token=${token}&timestamp=${timestamp}&chainId=${context.chain.id}`
-      );
-
-      const _price = res.data.priceUsd;
-
-      if (!isNaN(_price)) {
-        price = BigInt(Math.round(_price * 1e10)) / BigInt(1e10);
-      }
-    }
-
-    return amount * price;
+    return (amount * rate) / BigInt(10) ** BigInt(decimals ?? 18);
   } catch (e) {
     console.error(
       `Error: usdPriceForToken failed for projectId: ${projectId}, chainId: ${
