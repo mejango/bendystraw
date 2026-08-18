@@ -45,6 +45,16 @@ import {
 const addresses = (...items: (`0x${string}` | undefined)[]) =>
   items.filter((item): item is `0x${string}` => !!item);
 
+// Viem 2.55 caps HTTP response bodies at 10 MB and throws
+// ResponseBodyTooLargeError past it. A wide eth_getLogs over a filter matching
+// hundreds of factory children clears that easily, and the error is not
+// retryable in any useful sense — Ponder just retries the identical request and
+// wedges. Ponder's own HTTP client (used when `rpc` is a URL string) imposes no
+// limit, and neither did the viem we ran before the 0.17 upgrade, so opting out
+// restores prior behaviour rather than loosening anything.
+const httpTransport = (url: string) =>
+  http(url, { maxResponseBodySize: false });
+
 const rpc = (
   dwellirNetwork: string,
   infuraNetwork: string,
@@ -57,7 +67,7 @@ const rpc = (
   }
 
   const transports = [
-    http(
+    httpTransport(
       `https://api-${dwellirNetwork}.n.dwellir.com/${encodeURIComponent(
         dwellirApiKey,
       )}`,
@@ -67,7 +77,7 @@ const rpc = (
 
   if (infuraApiKey) {
     transports.push(
-      http(
+      httpTransport(
         `https://${infuraNetwork}.infura.io/v3/${encodeURIComponent(
           infuraApiKey,
         )}`,
@@ -75,7 +85,7 @@ const rpc = (
     );
   } else if (legacyRpc) {
     // Preserve existing deployments which provide a complete backup URL.
-    transports.push(http(legacyRpc));
+    transports.push(httpTransport(legacyRpc));
   }
 
   // Keep Dwellir primary. Viem tries these transports in order, only falling
