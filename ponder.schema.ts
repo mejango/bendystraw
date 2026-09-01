@@ -447,6 +447,46 @@ export const buybackPoolPosition = onchainTable(
   })
 );
 
+/**
+ * Every liquidity change in a registered buyback pool, as it happened. The
+ * position table above holds only LIVE liquidity — each modification
+ * overwrites it and a burn hides the row — so it cannot say what the pool held
+ * last month. Replaying these deltas in order (each with the pool's price at
+ * that block) rebuilds the pool's reserves at any past point.
+ */
+export const buybackPoolLiquidityEvent = onchainTable(
+  "buyback_pool_liquidity_event",
+  (t) => ({
+    ...uniqueId(t),
+    ...chainId(t),
+    ...projectId(t),
+    ...version(t),
+    ...txHash(t),
+    ...timestamp(t),
+    ...logIndex(t),
+    poolId: t.hex().notNull(),
+    /** PositionManager NFT id, which is also the position's salt in the pool. */
+    tokenId: t.bigint().notNull(),
+    tickLower: t.integer().notNull(),
+    tickUpper: t.integer().notNull(),
+    /** Signed: negative for a decrease. Zero for a bare fee collect. */
+    liquidityDelta: t.bigint().notNull(),
+    /** The position's liquidity once this change applied. */
+    liquidityAfter: t.bigint().notNull(),
+    /** The pool's price at this block, so the change can be valued in place. */
+    sqrtPriceX96: t.bigint(),
+  }),
+  (t) => ({
+    poolHistoryIdx: index().on(t.chainId, t.poolId, t.timestamp),
+    projectHistoryIdx: index().on(
+      t.chainId,
+      t.projectId,
+      t.version,
+      t.timestamp
+    ),
+  })
+);
+
 export const buybackPoolPositionRelations = relations(
   buybackPoolPosition,
   ({ one }) => ({
