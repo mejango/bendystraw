@@ -1,5 +1,9 @@
 import { ponder } from "ponder:registry";
-import { buybackPool, buybackPoolPosition } from "ponder:schema";
+import {
+  buybackPool,
+  buybackPoolLiquidityEvent,
+  buybackPoolPosition,
+} from "ponder:schema";
 import { UniswapV4PositionManagerAbi } from "../abis/UniswapV4PositionManagerAbi";
 import { UniswapV4StateViewAbi } from "../abis/UniswapV4StateViewAbi";
 import {
@@ -25,6 +29,10 @@ const VERSION = 6;
  * pool's current fee growth, which keeps it exact when other swaps land in the
  * same block, and self-correcting if one position is modified twice in a block.
  *
+ * Each modification is also kept as its own row, since the position table only
+ * ever holds the latest liquidity: that history is what lets a client say what
+ * the pool held at any earlier point.
+ *
  * The subscription is filtered to the canonical PositionManager, and anything
  * outside a registered `buybackPool` is dropped before a single RPC call — a
  * non-Juicebox pool costs one database miss.
@@ -32,7 +40,7 @@ const VERSION = 6;
 ponder.on("UniswapV4PoolManager6:ModifyLiquidity", async ({ event, context }) => {
   try {
     const chainId = context.chain.id;
-    const { id: poolId, tickLower, tickUpper, salt } = event.args;
+    const { id: poolId, tickLower, tickUpper, liquidityDelta, salt } = event.args;
 
     const pool = await context.db.find(buybackPool, { chainId, poolId });
     if (!pool) return;
@@ -45,20 +53,45 @@ ponder.on("UniswapV4PoolManager6:ModifyLiquidity", async ({ event, context }) =>
     const stateView = STATE_VIEW_BY_CHAIN[chainId];
     if (!positionManager || !stateView) return;
 
-    const [liquidityAfter, feeGrowthInside0, feeGrowthInside1] =
-      await context.client.readContract({
-        abi: UniswapV4StateViewAbi,
-        address: stateView,
-        functionName: "getPositionInfo",
-        args: [poolId, positionKey(positionManager, tickLower, tickUpper, salt)],
-        blockNumber: event.block.number,
-      });
+    const [[liquidityAfter, feeGrowthInside0, feeGrowthInside1], [sqrtPriceX96]] =
+      await Promise.all([
+        context.client.readContract({
+          abi: UniswapV4StateViewAbi,
+          address: stateView,
+          functionName: "getPositionInfo",
+          args: [poolId, positionKey(positionManager, tickLower, tickUpper, salt)],
+          blockNumber: event.block.number,
+        }),
+        context.client.readContract({
+          abi: UniswapV4StateViewAbi,
+          address: stateView,
+          functionName: "getSlot0",
+          args: [poolId],
+          blockNumber: event.block.number,
+        }),
+      ]);
 
     const existing = await context.db.find(buybackPoolPosition, {
       chainId,
       tokenId,
     });
     const timestamp = Number(event.block.timestamp);
+
+    await context.db.insert(buybackPoolLiquidityEvent).values({
+      chainId,
+      projectId: pool.projectId,
+      version: VERSION,
+      txHash: event.transaction.hash,
+      timestamp,
+      logIndex: event.log.logIndex,
+      poolId,
+      tokenId,
+      tickLower,
+      tickUpper,
+      liquidityDelta,
+      liquidityAfter,
+      sqrtPriceX96: sqrtPriceX96 > 0n ? sqrtPriceX96 : null,
+    });
 
     if (!existing) {
       // A fresh position starts at the pool's current growth, so nothing has
