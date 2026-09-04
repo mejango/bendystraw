@@ -3,6 +3,7 @@ import {
   buybackPool,
   buybackPoolLiquidityEvent,
   buybackPoolPosition,
+  buybackPoolRange,
 } from "ponder:schema";
 import { UniswapV4PositionManagerAbi } from "../abis/UniswapV4PositionManagerAbi";
 import { UniswapV4StateViewAbi } from "../abis/UniswapV4StateViewAbi";
@@ -92,6 +93,25 @@ ponder.on("UniswapV4PoolManager6:ModifyLiquidity", async ({ event, context }) =>
       liquidityAfter,
       sqrtPriceX96: sqrtPriceX96 > 0n ? sqrtPriceX96 : null,
     });
+
+    // The range bucket nets every delta, so it always holds the pool's live
+    // liquidity between these ticks whichever positions contributed it.
+    await context.db
+      .insert(buybackPoolRange)
+      .values({
+        chainId,
+        projectId: pool.projectId,
+        version: VERSION,
+        poolId,
+        tickLower,
+        tickUpper,
+        liquidity: liquidityDelta,
+        updatedAt: timestamp,
+      })
+      .onConflictDoUpdate((range) => ({
+        liquidity: range.liquidity + liquidityDelta,
+        updatedAt: timestamp,
+      }));
 
     if (!existing) {
       // A fresh position starts at the pool's current growth, so nothing has
