@@ -487,6 +487,32 @@ export const buybackPoolLiquidityEvent = onchainTable(
   })
 );
 
+/**
+ * Net liquidity per tick range in a registered buyback pool: every
+ * ModifyLiquidity delta folded into its (tickLower, tickUpper) bucket. This is
+ * the pool's live composition — what a client otherwise reconstructs by
+ * replaying the whole event history — so it can be read in one small query
+ * and valued at the current price.
+ */
+export const buybackPoolRange = onchainTable(
+  "buyback_pool_range",
+  (t) => ({
+    ...chainId(t),
+    ...projectId(t),
+    ...version(t),
+    poolId: t.hex().notNull(),
+    tickLower: t.integer().notNull(),
+    tickUpper: t.integer().notNull(),
+    /** Sum of every liquidityDelta in this range; zero once fully withdrawn. */
+    liquidity: t.bigint().notNull(),
+    updatedAt: t.integer().notNull(),
+  }),
+  (t) => ({
+    pk: primaryKey({ columns: [t.chainId, t.poolId, t.tickLower, t.tickUpper] }),
+    poolIdx: index().on(t.chainId, t.poolId),
+  })
+);
+
 export const buybackPoolPositionRelations = relations(
   buybackPoolPosition,
   ({ one }) => ({
