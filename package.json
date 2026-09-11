@@ -8,13 +8,14 @@
     "start": "ponder start",
     "db": "ponder db",
     "status": "tsx scripts/status.ts",
-    "test": "tsx scripts/check-participant-balance-invariant.ts && tsx scripts/check-lp-fee-accounting.ts",
+    "test": "tsx scripts/check-participant-balance-invariant.ts && tsx scripts/check-lp-fee-accounting.ts && node --import tsx scripts/check-router-retained-custody.ts && node --import tsx scripts/check-rollout-deployment-receipts.ts",
     "serve": "ponder serve --schema=public",
     "codegen": "ponder codegen",
     "lint": "eslint . --ext .ts",
     "typecheck": "tsc",
     "prepare": "husky",
-    "tsc": "tsc"
+    "tsc": "tsc",
+    "generate:rollout": "node --import tsx scripts/generate-rollout-deployments.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.0",

@@ -32,7 +32,7 @@ To download the schema (e.g. for generating graphql types in your frontend):
 
 **Singular queries**
 
-- Return a single row from a table. Must define primary key for table (e.g. for projects, primary key is compound `projectId` + `chainId`). Response contains only the row data.
+- Return a single row from a table. Must define primary key for table (e.g. for projects, primary key is compound `projectId` + `chainId` + `version`). Response contains only the row data.
 
   <table>
     <tr>
@@ -41,7 +41,7 @@ To download the schema (e.g. for generating graphql types in your frontend):
     </tr>
     <tr>
       <td>
-      <code>project(projectId, chainId) {
+      <code>project(projectId, chainId, version) {
     balance
     volume
     suckerGroupId
@@ -112,6 +112,47 @@ To download the schema (e.g. for generating graphql types in your frontend):
       </td>
     </tr>
   </table>
+
+### V6 routing deployments and retained custody
+
+`GET /deployments` returns this indexer's receipt-backed contract records for its network, including each address, deployment block, package version, artifact path, and generation (`current`, `previous`, or `v1`). `current` means the canonical deployment artifact; an individual project's registry selection can still point to a previous generation. Historical buyback and router addresses remain indexed after retirement.
+
+The buyback 1.4.0, router 1.3.0, and gateway deployment artifacts currently exist on Sepolia, Base Sepolia, and Arbitrum Sepolia. Optimism Sepolia has the ratio price feed only. Mainnet gateways are absent until executed deployment receipts land; updating the generated records enables each chain independently. All V6 activity keeps `version: 6`, including records from retired V6 contracts.
+
+Gateway custody is available through these GraphQL collections:
+
+| Collection | Contents |
+| --- | --- |
+| `routerPendingCalls` | Original call, memo, metadata, commitment, amount, source/destination project, retry state, and terminal status. Resolved calls stay in history with `retainedAmount: 0`. |
+| `routerPendingCallEvents` | Ordered queue, failed retry, settlement, and refund history, including exact emitted failure-class hashes and custody deltas. Sort by block number and log index within a chain. |
+| `routerRetainedBalances` | Original-token custody grouped by chain, gateway, source project, and token, with cumulative queued, settled, and refunded amounts. |
+| `routerPermitFailureEvents` | Permit2 failures emitted by current and retired routers. These events have no project ID and do not by themselves imply retained custody. |
+
+For example, inspect a source project's custody separately from its recorded terminal balance:
+
+```graphql
+query {
+  routerRetainedBalances(where: { chainId: 11155111, sourceProjectId: 2, version: 6 }) {
+    items { gateway token retainedAmount pendingCallCount queuedAmount settledAmount refundedAmount }
+  }
+  routerPendingCalls(where: { chainId: 11155111, sourceProjectId: 2, version: 6 }) {
+    items { pendingCallId gateway projectId token amount retainedAmount status latestErrorHash failureCount nextAttemptAt }
+  }
+}
+```
+
+A queued call retains the original input token. Its first failure is unqualified (`failureCount: 0`); later qualified failures update the emitted streak and next retry time. A changed error class resets the streak. `settled` means the retry reached the destination, and `refunded` means the gateway returned funds through source-project accounting. These amounts are separate from destination revenue and must not be counted as a successful payment while retained. Full revert bytes and retry gas budgets are not emitted by the gateway; use the onchain failure-state read when preparing an executable retry.
+
+After canonical artifacts change, regenerate from the sibling deployment repository and reindex:
+
+```sh
+npm run generate:rollout -- --ref main
+npm run codegen
+npm run typecheck
+npm test
+```
+
+The generator reads `../deploy-all-v6/deployments` (override with `--deployments /path/to/deployments`). `--ref` selects a committed artifact snapshot; without it, the current files are read. A successful deployment receipt is required for every included address. Proposed addresses are never indexing sources. The generated ABIs and manifest should be committed together. Changing the schema or restoring older deployment blocks requires the normal Ponder reindex; run `TESTNET=true npm run dev` against a testnet RPC before production rollout.
 
 ### Special Queries
 

@@ -9,6 +9,7 @@ import { db } from "ponder:api";
 import schema from "ponder:schema";
 import { IS_DEV } from "../constants/dev";
 import { NETWORKS } from "../constants/networks";
+import { ROLLOUT_DEPLOYMENTS } from "../constants/rolloutDeployments";
 import { ALLOWED_ORIGINS } from "../constants/origins";
 import { getBsStatus } from "../lib/getBsStatus";
 import { keyAuthMiddleware } from "../middleware/keyAuth";
@@ -34,6 +35,14 @@ app.get(
     path: "src/assets/logo.png",
   })
 );
+
+// Canonical receipt-backed deployment generations used by this indexer.
+app.get("/deployments", (c) => c.json({
+  ...ROLLOUT_DEPLOYMENTS,
+  deployments: ROLLOUT_DEPLOYMENTS.deployments.filter(
+    (deployment) => deployment.testnet === (process.env.TESTNET === "true")
+  ),
+}));
 
 // Serve a markdown file as HTML
 app.get("/", async (c) => {
