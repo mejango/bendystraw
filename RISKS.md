@@ -12,9 +12,11 @@ Bendystraw reconstructs protocol activity from chain logs. Its GraphQL results d
 
 ## Trust assumptions and validation limits
 
+The generated snapshot at `a6ab40c5806b52ff4cb21f9eaefe275e621796f9` includes executed gateway deployments on all four mainnets and the three supported testnets; Optimism Sepolia remains ratio-feed-only. Enabling these sources in code does not deploy or reindex a production Bendystraw instance. Keep the executed snapshot when artifact PRs are still awaiting merge: an older local branch can omit deployed generations even if its remaining receipts are valid.
+
 Canonical deployment artifacts, ABI accuracy, RPC responses, Ponder's canonical-chain/reorg handling, and a complete backfill underpin the results. An empty collection can mean no events, an unavailable source, or incomplete indexing. RPC rate limits and unavailable archive history can delay or prevent replay; monitor readiness and indexed block heights per chain before presenting balances as current.
 
-The rollout's isolated local smoke created the schema, served the new GraphQL collections, and completed a scoped Sepolia gateway/router backfill through block 11684073. No relevant events existed in that range; a separate gateway log read also returned none. Populated queue/retry/settlement/refund states were exercised by the actual-handler test harness. These checks do not establish that a production database or every chain has completed a full historical replay. The broader public-RPC backfill encountered rate limits.
+The rollout's isolated local smoke created the schema, served the new GraphQL collections, and completed a scoped Sepolia gateway/router backfill through block 11684073. No relevant events existed in that range; a separate gateway log read also returned none. Populated queue/retry/settlement/refund states were exercised by the actual-handler test harness. These checks do not establish that a production database or every chain has completed a full historical replay. The broader public-RPC backfill encountered rate limits. The production refresh also completed bounded 21-block windows per new router/gateway contract on Ethereum, Arbitrum, Base, and Optimism, using a separate local PGlite database. No relevant events were emitted in those windows. This verifies source activation and schema compatibility, not complete production history; Arbitrum's first public provider required an archive token, so the bounded check used Arbitrum's public RPC instead.
 
 ## Invariants to verify
 

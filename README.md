@@ -117,7 +117,7 @@ To download the schema (e.g. for generating graphql types in your frontend):
 
 `GET /deployments` returns this indexer's receipt-backed contract records for its network, including each address, deployment block, package version, artifact path, and generation (`current`, `previous`, or `v1`). `current` means the canonical deployment artifact; an individual project's registry selection can still point to a previous generation. Historical buyback and router addresses remain indexed after retirement.
 
-The buyback 1.4.0, router 1.3.0, and gateway deployment artifacts currently exist on Sepolia, Base Sepolia, and Arbitrum Sepolia. Optimism Sepolia has the ratio price feed only. Mainnet gateways are absent until executed deployment receipts land; updating the generated records enables each chain independently. All V6 activity keeps `version: 6`, including records from retired V6 contracts.
+Canonical artifact commit `a6ab40c5806b52ff4cb21f9eaefe275e621796f9` records executed buyback 1.4.0, router 1.3.0, gateway, and ratio-feed deployments on Ethereum, Arbitrum, Base, Optimism, Sepolia, Base Sepolia, and Arbitrum Sepolia. Optimism Sepolia has the ratio price feed only. The generated records now enable the gateway on all four mainnets at each chain's actual deployment block; existing project pins can still select a retired generation. All V6 activity keeps `version: 6`, including records from retired V6 contracts.
 
 Gateway custody is available through these GraphQL collections:
 
@@ -146,13 +146,13 @@ A queued call retains the original input token. Its first failure is unqualified
 After canonical artifacts change, regenerate from the sibling deployment repository and reindex:
 
 ```sh
-npm run generate:rollout -- --ref main
+npm run generate:rollout -- --ref a6ab40c5806b52ff4cb21f9eaefe275e621796f9
 npm run codegen
 npm run typecheck
 npm test
 ```
 
-The generator reads `../deploy-all-v6/deployments` (override with `--deployments /path/to/deployments`). `--ref` selects a committed artifact snapshot; without it, the current files are read. A successful deployment receipt is required for every included address. Proposed addresses are never indexing sources. The generated ABIs and manifest should be committed together. Changing the schema or restoring older deployment blocks requires the normal Ponder reindex; run `TESTNET=true npm run dev` against a testnet RPC before production rollout.
+The generator reads `../deploy-all-v6/deployments` (override with `--deployments /path/to/deployments`). `--ref` selects a committed artifact snapshot; without it, the current files are read. The example pins the executed production snapshot; choose the newer verified artifact commit for later rollouts, and do not regenerate from an older checkout or branch that predates deployed generations. A successful deployment receipt is required for every included address. Proposed addresses are never indexing sources. The generated ABIs and manifest should be committed together. Changing the schema or restoring older deployment blocks requires the normal Ponder reindex; run `TESTNET=true npm run dev` against a testnet RPC before production rollout.
 
 ### Special Queries
 
