@@ -1,0 +1,25 @@
+# Bendystraw risks
+
+Bendystraw reconstructs protocol activity from chain logs. Its GraphQL results describe indexed history, not an execution guarantee or an independent source of truth for gateway custody.
+
+## Priority risks
+
+- **Deployment and start-block errors omit history or misrepresent availability.** The rollout generator accepts successful receipts from canonical `deploy-all-v6/deployments` and records their chain, address, block, and source revision in [`rolloutDeployments.ts`](src/constants/rolloutDeployments.ts). Ponder watches all recorded generations from their earliest deployment block on each chain. Proposed addresses and deterministic address predictions do not enable a source. A `current` artifact is not proof of a project's registry selection; resolve the project's selected terminal separately.
+- **Historical generations require replay.** Retired buyback hooks, routers, and their matching Uniswap hooks remain sources. Removing them or retaining a later start block silently loses earlier activity. Schema changes and restored historical start blocks require the normal Ponder reindex; deploying new code does not establish that an existing database has replayed the required range. Keep protocol `version: 6` explicit even for retired V6 contracts, and keep chain and gateway identities separate.
+- **Retained amounts are original-token custody, not destination revenue.** Queue events add custody; failed retries preserve it; settlement and refund events release it. Group amounts by chain, gateway, source project, and token. A source refund credits project accounting; it is not a payment to the destination or a wallet transfer. A refund attempt that reverts leaves the call pending.
+- **A successful retry transaction can still leave custody pending.** `RecordTerminalCallFailure` records another failed qualified attempt. `ProcessPendingCall` confirms settlement; `RefundPendingCall` confirms a source refund. Neither transaction success nor an unchanged project balance establishes the outcome. The contract's `pendingCallCount()` counts identifiers ever issued, not outstanding calls; the indexer's retained-balance `pendingCallCount` counts unresolved calls in that balance group.
+- **Missing or reordered events invalidate reconstructed state.** Preserve the queued call, memo, and metadata exactly so their ABI-encoded commitment can be checked. Process canonical logs in block/log order, including queue and resolution in the same transaction. The initial queued failure is unqualified; later emitted counts track consecutive matching failure classes and reset when the class changes. Error hashes do not contain full revert bytes or retry gas budgets. Read the current onchain commitment and failure state before submitting a retry. Missing active calls, mismatched commitments, and inconsistent custody stop the gateway handlers instead of silently discarding history.
+
+## Trust assumptions and validation limits
+
+Canonical deployment artifacts, ABI accuracy, RPC responses, Ponder's canonical-chain/reorg handling, and a complete backfill underpin the results. An empty collection can mean no events, an unavailable source, or incomplete indexing. RPC rate limits and unavailable archive history can delay or prevent replay; monitor readiness and indexed block heights per chain before presenting balances as current.
+
+The rollout's isolated local smoke created the schema, served the new GraphQL collections, and completed a scoped Sepolia gateway/router backfill through block 11684073. No relevant events existed in that range; a separate gateway log read also returned none. Populated queue/retry/settlement/refund states were exercised by the actual-handler test harness. These checks do not establish that a production database or every chain has completed a full historical replay. The broader public-RPC backfill encountered rate limits.
+
+## Invariants to verify
+
+- Every enabled address has the correct chain and successful deployment receipt; all required historical generations and start blocks survive regeneration.
+- For each retained-balance group, `queuedAmount = retainedAmount + settledAmount + refundedAmount`; its outstanding count and amount agree with unresolved calls in that group.
+- Resolved calls remain queryable with zero retained amount. A failed retry never releases custody, and a resolution must match the original call commitment.
+- Gateway custody remains separate from destination payment/revenue totals. All related V6 rows retain their chain, gateway, and protocol version.
+- Before production use, verify schema availability, replay completion, per-chain indexed heights, and selected samples against canonical logs and live gateway state. Follow the regeneration and reindex procedure in [README.md](README.md#v6-routing-deployments-and-retained-custody).
