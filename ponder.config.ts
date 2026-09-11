@@ -32,12 +32,14 @@ import { JBSuckerV6Abi } from "./abis/JBSuckerV6Abi";
 import { JBRulesetsAbi } from "./abis/JBRulesetsAbi";
 import { JBSuckersRegistryV6Abi } from "./abis/JBSuckersRegistryV6Abi";
 import { JBBuybackHookV6Abi } from "./abis/JBBuybackHookV6Abi";
+import { JBRouterTerminalV6Abi } from "./abis/JBRouterTerminalV6Abi";
+import { JBRouterTerminalGatewayV6Abi } from "./abis/JBRouterTerminalGatewayV6Abi";
+import { rolloutChains } from "./src/constants/rollout";
 import { JBProjectPayerDeployerAbi } from "./abis/JBProjectPayerDeployerAbi";
 import { JBUniswapV4HookV6Abi } from "./abis/JBUniswapV4HookV6Abi";
 import { UniswapV4PoolManagerAbi } from "./abis/UniswapV4PoolManagerAbi";
 import { UniswapV4PositionManagerAbi } from "./abis/UniswapV4PositionManagerAbi";
 import {
-  JB_UNISWAP_V4_HOOK,
   JB_UNISWAP_V4_POOL_MANAGER,
   JB_UNISWAP_V4_POSITION_MANAGER,
 } from "./src/constants/uniswapV4";
@@ -124,12 +126,6 @@ const V6_MAINNET_START_BLOCKS = {
     base: 47398931,
     optimism: 152994203,
   },
-  jbBuybackHook: {
-    ethereum: 25453848,
-    arbitrum: 480050991,
-    base: 48157376,
-    optimism: 153752660,
-  },
   revLoans: {
     ethereum: 25330064,
     arbitrum: 474173960,
@@ -168,11 +164,6 @@ const V6_TESTNET_START_BLOCKS = {
     arbitrumSepolia: 277725286,
     baseSepolia: 42909320,
     optimismSepolia: 44892163,
-  },
-  jbBuybackHook: {
-    ethereumSepolia: 11144310,
-    arbitrumSepolia: 281300469,
-    baseSepolia: 43356714,
   },
   revLoans: {
     ethereumSepolia: 11070713,
@@ -748,30 +739,19 @@ export const mainnetConfig = createConfig({
     },
     JBBuybackHook6: {
       abi: JBBuybackHookV6Abi,
-      address: addresses(ADDRESS.jbBuybackHook6),
-      chain: {
-        ethereum: {
-          startBlock: V6_MAINNET_START_BLOCKS.jbBuybackHook.ethereum,
-        },
-        arbitrum: {
-          startBlock: V6_MAINNET_START_BLOCKS.jbBuybackHook.arbitrum,
-        },
-        base: {
-          startBlock: V6_MAINNET_START_BLOCKS.jbBuybackHook.base,
-        },
-        optimism: {
-          startBlock: V6_MAINNET_START_BLOCKS.jbBuybackHook.optimism,
-        },
-      },
+      chain: rolloutChains("JBBuybackHook", false),
+    },
+    JBRouterTerminal6: {
+      abi: JBRouterTerminalV6Abi,
+      chain: rolloutChains("JBRouterTerminal", false),
+    },
+    JBRouterTerminalGateway6: {
+      abi: JBRouterTerminalGatewayV6Abi,
+      chain: rolloutChains("JBRouterTerminalGateway", false),
     },
     JBUniswapV4Hook6: {
       abi: JBUniswapV4HookV6Abi,
-      chain: {
-        ethereum: JB_UNISWAP_V4_HOOK.ethereum,
-        arbitrum: JB_UNISWAP_V4_HOOK.arbitrum,
-        base: JB_UNISWAP_V4_HOOK.base,
-        optimism: JB_UNISWAP_V4_HOOK.optimism,
-      },
+      chain: rolloutChains("JBUniswapV4Hook", false),
     },
     UniswapV4PositionManager6: {
       abi: UniswapV4PositionManagerAbi,
@@ -1261,26 +1241,19 @@ export const testnetConfig = createConfig({
     },
     JBBuybackHook6: {
       abi: JBBuybackHookV6Abi,
-      address: addresses(ADDRESS.jbBuybackHook6),
-      chain: {
-        ethereumSepolia: {
-          startBlock: V6_TESTNET_START_BLOCKS.jbBuybackHook.ethereumSepolia,
-        },
-        arbitrumSepolia: {
-          startBlock: V6_TESTNET_START_BLOCKS.jbBuybackHook.arbitrumSepolia,
-        },
-        baseSepolia: {
-          startBlock: V6_TESTNET_START_BLOCKS.jbBuybackHook.baseSepolia,
-        },
-      },
+      chain: rolloutChains("JBBuybackHook", true),
+    },
+    JBRouterTerminal6: {
+      abi: JBRouterTerminalV6Abi,
+      chain: rolloutChains("JBRouterTerminal", true),
+    },
+    JBRouterTerminalGateway6: {
+      abi: JBRouterTerminalGatewayV6Abi,
+      chain: rolloutChains("JBRouterTerminalGateway", true),
     },
     JBUniswapV4Hook6: {
       abi: JBUniswapV4HookV6Abi,
-      chain: {
-        ethereumSepolia: JB_UNISWAP_V4_HOOK.ethereumSepolia,
-        arbitrumSepolia: JB_UNISWAP_V4_HOOK.arbitrumSepolia,
-        baseSepolia: JB_UNISWAP_V4_HOOK.baseSepolia,
-      },
+      chain: rolloutChains("JBUniswapV4Hook", true),
     },
     UniswapV4PositionManager6: {
       abi: UniswapV4PositionManagerAbi,

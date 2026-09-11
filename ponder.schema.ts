@@ -2036,3 +2036,144 @@ export const walletRelations = relations(wallet, ({ many }) => ({
   participants: many(participant),
   nfts: many(nft),
 }));
+
+export const routerPendingCallStatus = onchainEnum("router_pending_call_status", [
+  "queued",
+  "retried",
+  "settled",
+  "refunded",
+]);
+
+// The gateway stores only a commitment. Keep the original call, memo and metadata
+// so clients can reconstruct a permissionless retry, including after a reindex.
+// Resolved rows remain available as history; retainedAmount becomes zero.
+export const routerPendingCall = onchainTable(
+  "router_pending_call",
+  (t) => ({
+    ...chainId(t),
+    ...version(t),
+    gateway: t.hex().notNull(),
+    pendingCallId: t.hex().notNull(),
+    ...projectId(t),
+    sourceProjectId: t.integer().notNull(),
+    token: t.hex().notNull(),
+    amount: t.bigint().notNull(),
+    retainedAmount: t.bigint().notNull(),
+    preferAddToBalance: t.boolean().notNull(),
+    shouldReturnHeldFees: t.boolean().notNull(),
+    beneficiary: t.hex().notNull(),
+    refundTo: t.hex().notNull(),
+    memo: t.text().notNull(),
+    metadata: t.hex().notNull(),
+    callCommitment: t.hex().notNull(),
+    status: routerPendingCallStatus().notNull(),
+    initialErrorHash: t.hex().notNull(),
+    latestErrorHash: t.hex().notNull(),
+    // Queue's initial failure is not qualified and does not start the streak.
+    failureCount: t.integer().notNull(),
+    // Includes successful processing and finalization, excluding initial queue.
+    attemptCount: t.integer().notNull(),
+    // Zero means the first retry is immediately available; null means resolved.
+    nextAttemptAt: t.bigint(),
+    beneficiaryTokenCount: t.bigint(),
+    ...createdAt(t),
+    updatedAt: t.integer().notNull(),
+    resolvedAt: t.integer(),
+    queueTxHash: t.hex().notNull(),
+    latestTxHash: t.hex().notNull(),
+  }),
+  (t) => ({
+    pk: primaryKey({ columns: [t.chainId, t.gateway, t.pendingCallId] }),
+    sourceStatusIdx: index().on(t.chainId, t.sourceProjectId, t.version, t.status),
+    destinationIdx: index().on(t.chainId, t.projectId, t.version),
+  })
+);
+
+// Append-only gateway history. Error hashes are the exact emitted failure-class
+// fingerprints; the gateway does not emit full revert bytes or forwarded gas.
+export const routerPendingCallEvent = onchainTable(
+  "router_pending_call_event",
+  (t) => ({
+    ...eventParams(t),
+    gateway: t.hex().notNull(),
+    pendingCallId: t.hex().notNull(),
+    ...projectId(t),
+    sourceProjectId: t.integer().notNull(),
+    token: t.hex().notNull(),
+    amount: t.bigint().notNull(),
+    // Positive on queue, negative on settlement/refund, zero on failed retry.
+    retainedAmountDelta: t.bigint().notNull(),
+    type: routerPendingCallStatus().notNull(),
+    errorHash: t.hex(),
+    failureCount: t.integer(),
+    nextAttemptAt: t.bigint(),
+    beneficiaryTokenCount: t.bigint(),
+    blockNumber: t.bigint().notNull(),
+  }),
+  (t) => ({
+    callHistoryIdx: index().on(t.chainId, t.gateway, t.pendingCallId, t.timestamp),
+    sourceHistoryIdx: index().on(t.chainId, t.sourceProjectId, t.version, t.timestamp),
+  })
+);
+
+// Original-token custody per source project. Do not add this to destination
+// revenue: settlement and source refunds are separately indexed terminal events.
+export const routerRetainedBalance = onchainTable(
+  "router_retained_balance",
+  (t) => ({
+    ...chainId(t),
+    ...version(t),
+    gateway: t.hex().notNull(),
+    sourceProjectId: t.integer().notNull(),
+    token: t.hex().notNull(),
+    retainedAmount: t.bigint().notNull(),
+    pendingCallCount: t.integer().notNull(),
+    queuedAmount: t.bigint().notNull(),
+    settledAmount: t.bigint().notNull(),
+    refundedAmount: t.bigint().notNull(),
+    updatedAt: t.integer().notNull(),
+  }),
+  (t) => ({
+    pk: primaryKey({ columns: [t.chainId, t.gateway, t.sourceProjectId, t.token] }),
+    sourceIdx: index().on(t.chainId, t.sourceProjectId, t.version),
+  })
+);
+
+export const routerPendingCallRelations = relations(routerPendingCall, ({ one, many }) => ({
+  sourceProject: one(project, {
+    fields: [routerPendingCall.chainId, routerPendingCall.sourceProjectId, routerPendingCall.version],
+    references: [project.chainId, project.projectId, project.version],
+  }),
+  destinationProject: one(project, {
+    fields: [routerPendingCall.chainId, routerPendingCall.projectId, routerPendingCall.version],
+    references: [project.chainId, project.projectId, project.version],
+  }),
+  events: many(routerPendingCallEvent),
+}));
+
+export const routerPendingCallEventRelations = relations(routerPendingCallEvent, ({ one }) => ({
+  pendingCall: one(routerPendingCall, {
+    fields: [routerPendingCallEvent.chainId, routerPendingCallEvent.gateway, routerPendingCallEvent.pendingCallId],
+    references: [routerPendingCall.chainId, routerPendingCall.gateway, routerPendingCall.pendingCallId],
+  }),
+}));
+
+// Permit failures are emitted by all indexed router generations. They carry no
+// project ID; keep terminal/owner and the complete revert bytes for decoding.
+export const routerPermitFailureEvent = onchainTable(
+  "router_permit_failure_event",
+  (t) => ({
+    ...eventParams(t),
+    terminal: t.hex().notNull(),
+    token: t.hex().notNull(),
+    owner: t.hex().notNull(),
+    reason: t.hex().notNull(),
+    // The library's three-argument event has no caller; that row uses tx.from.
+    callerFromEvent: t.boolean().notNull(),
+    blockNumber: t.bigint().notNull(),
+  }),
+  (t) => ({
+    ownerHistoryIdx: index().on(t.chainId, t.owner, t.version, t.timestamp),
+    terminalHistoryIdx: index().on(t.chainId, t.terminal, t.timestamp),
+  })
+);
