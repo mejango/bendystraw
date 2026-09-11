@@ -84,7 +84,9 @@ for (const contract of ["JBBuybackHook", "JBRouterTerminal", "JBRouterTerminalGa
     for (let i = 0; i < 3; i++) if (left[i] !== right[i]) return right[i]! - left[i]!;
     return 0;
   });
-  outputs.push([`abis/${contract}V6Abi.ts`, `${header}export const ${contract}V6Abi = ${JSON.stringify(versions[0]!.abi, null, 2)} as const;\n`]);
+  // Preserve the existing TypeScript ABI style so diffs show changes to the ABI.
+  const abi = JSON.stringify(versions[0]!.abi, null, 2).replace(/^([ \t]*)"([A-Za-z_$][\w$]*)":/gm, "$1$2:");
+  outputs.push([`abis/${contract}V6Abi.ts`, `${header}export const ${contract}V6Abi = ${abi} as const;\n`]);
 }
 // Validate every source before replacing any generated output.
 for (const [path, contents] of outputs) writeFileSync(path, contents);
