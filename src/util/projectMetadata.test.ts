@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { toCidV1 } from "./cid";
+import { encodedIpfsUriToCid, toCidV1 } from "./cid";
 import {
   parseProjectMetadataPayload,
   projectMetadataPath,
@@ -104,5 +104,28 @@ void describe("project metadata", () => {
     assert.equal(update.name, "Project");
     assert.equal(update.logoUri, "ipfs://logo");
     assert.equal(update.payDisclosure, "Terms apply");
+  });
+});
+
+void describe("encodedIpfsUriToCid", () => {
+  void it("rebuilds the CIDv0 from a tier's 32-byte digest", () => {
+    // base:13 tier 2 — resolvedUri "", metadata null in prod, JSON lives at this CID.
+    assert.equal(
+      encodedIpfsUriToCid("0x7f3e72a92de253df727f179cd26f0981b56e59c11ea08a25b7e668b8d25a6e82"),
+      "QmWuMiWBSsEfK39mdgoYU4ufzaB7y6ahYxN8m1hCza4Jvu"
+    );
+  });
+
+  void it("round-trips through toCidV1's base58 decoder", () => {
+    const hex = "0x9f668ba0fc3a75e8a3cb5c4e32f0a2e3a7d0ea9e1b3c4d5e6f708192a3b4c5d6";
+    const cid = encodedIpfsUriToCid(hex)!;
+    assert.equal(cid.startsWith("Qm"), true);
+    assert.notEqual(toCidV1(cid), null);
+  });
+
+  void it("is null for the zero value and malformed input", () => {
+    assert.equal(encodedIpfsUriToCid(`0x${"0".repeat(64)}`), null);
+    assert.equal(encodedIpfsUriToCid("0x1234"), null);
+    assert.equal(encodedIpfsUriToCid(null), null);
   });
 });

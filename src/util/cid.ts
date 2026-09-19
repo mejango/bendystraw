@@ -78,3 +78,39 @@ function base32Encode(bytes: Uint8Array) {
 
   return encoded;
 }
+
+// JB721 tiers store their IPFS pointer as the 32-byte sha2-256 digest of a
+// CIDv0 (JBIpfsDecoder in nana-721-hook). Re-add the 0x1220 multihash prefix
+// and base58-encode to get the `Qm…` CID back. Null for the zero value.
+export function encodedIpfsUriToCid(encodedIpfsUri: string | null | undefined) {
+  if (!encodedIpfsUri || !/^0x[0-9a-f]{64}$/i.test(encodedIpfsUri)) return null;
+  if (/^0x0+$/.test(encodedIpfsUri)) return null;
+  const digest = Buffer.from(encodedIpfsUri.slice(2), "hex");
+  return base58Encode(Uint8Array.from([0x12, 0x20, ...digest]));
+}
+
+function base58Encode(bytes: Uint8Array) {
+  const digits = [0];
+
+  for (const byte of bytes) {
+    let carry = byte;
+
+    for (let i = 0; i < digits.length; i++) {
+      carry += digits[i]! << 8;
+      digits[i] = carry % 58;
+      carry = (carry / 58) | 0;
+    }
+
+    while (carry > 0) {
+      digits.push(carry % 58);
+      carry = (carry / 58) | 0;
+    }
+  }
+
+  let encoded = "";
+  // Each leading zero byte encodes as a leading "1".
+  for (let i = 0; i < bytes.length && bytes[i] === 0; i++) encoded += "1";
+  for (let i = digits.length - 1; i >= 0; i--) encoded += BASE58_ALPHABET[digits[i]!];
+
+  return encoded;
+}
