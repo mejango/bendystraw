@@ -19,7 +19,7 @@ import {
 } from "./util/nftTierActivity";
 import { setParticipantSnapshot } from "./util/participantSnapshot";
 import { tierOf } from "./util/tierOf";
-import { parseTokenUri } from "./util/tokenUri";
+import { parseTierMetadata, parseTokenUri } from "./util/tokenUri";
 import { isAddressEqual } from "viem";
 import { wallet } from "ponder:schema";
 
@@ -57,7 +57,7 @@ ponder.on("JB721TiersHook:AddTier", async ({ event, context }) => {
       version,
     });
 
-    const metadata = parseTokenUri(resolvedUri);
+    const metadata = await parseTierMetadata({ resolvedUri, encodedIpfsUri: tier.encodedIPFSUri });
 
     await context.db.insert(nftTier).values({
       tierId: Number(tierId),

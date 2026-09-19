@@ -5,7 +5,7 @@ import { BANNY_RETAIL_HOOK, BANNY_RETAIL_HOOK_5 } from "./constants/bannyHook";
 import { getAllTiers } from "./util/getAllTiers";
 import { getBannySvg } from "./util/getBannySvg";
 import { getVersion } from "./util/getVersion";
-import { parseTokenUri } from "./util/tokenUri";
+import { parseTierMetadata } from "./util/tokenUri";
 import { isAddressEqual } from "viem";
 
 const tierAllowsOwnerMint = (tier: Awaited<ReturnType<typeof getAllTiers>>[number]) =>
@@ -83,7 +83,7 @@ ponder.on("JB721TiersHookDeployer:HookDeployed", async ({ event, context }) => {
           transfersPausable: tierTransfersPausable(tier),
           votingUnits: tier.votingUnits,
           resolvedUri: tier.resolvedUri,
-          metadata: parseTokenUri(tier.resolvedUri),
+          metadata: await parseTierMetadata({ resolvedUri: tier.resolvedUri, encodedIpfsUri: tier.encodedIPFSUri }),
           svg,
           version,
         });

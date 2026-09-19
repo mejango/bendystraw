@@ -19,7 +19,7 @@ import {
 } from "./util/nftTierActivity";
 import { setParticipantSnapshot } from "./util/participantSnapshot";
 import { tierOf } from "./util/tierOf";
-import { parseTokenUri } from "./util/tokenUri";
+import { parseTierMetadata, parseTokenUri } from "./util/tokenUri";
 import { isAddressEqual } from "viem";
 import { bannyRetailHookForVersion } from "./constants/bannyHook";
 import { getBannySvg } from "./util/getBannySvg";
@@ -60,7 +60,7 @@ if (ADDRESS.jb721TiersHookDeployer6) {
         });
       }
 
-      const metadata = parseTokenUri(resolvedUri);
+      const metadata = await parseTierMetadata({ resolvedUri, encodedIpfsUri: tier.encodedIPFSUri });
 
       await context.db.insert(nftTier).values({
         tierId: Number(tierId),

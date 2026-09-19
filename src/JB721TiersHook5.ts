@@ -20,7 +20,7 @@ import {
 } from "./util/nftTierActivity";
 import { setParticipantSnapshot } from "./util/participantSnapshot";
 import { tierOf } from "./util/tierOf";
-import { parseTokenUri } from "./util/tokenUri";
+import { parseTierMetadata, parseTokenUri } from "./util/tokenUri";
 import { wallet } from "ponder:schema";
 
 // we hard-code version and duplicate this logic bc no other way to dynamically determine contract version (i think)
@@ -58,7 +58,7 @@ ponder.on("JB721TiersHook5:AddTier", async ({ event, context }) => {
       version,
     });
 
-    const metadata = parseTokenUri(resolvedUri);
+    const metadata = await parseTierMetadata({ resolvedUri, encodedIpfsUri: tier.encodedIPFSUri });
 
     await context.db.insert(nftTier).values({
       tierId: Number(tierId),
