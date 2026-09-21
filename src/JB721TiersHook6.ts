@@ -216,6 +216,29 @@ if (ADDRESS.jb721TiersHookDeployer6) {
     }
   });
 
+  // `setMetadata` replaces a tier's media in place; the indexed CID and parsed
+  // metadata must follow it or every client that prefers the index shows the old media.
+  ponder.on("JB721TiersHook6:SetEncodedIpfsUri", async ({ event, context }) => {
+    try {
+      const hook = event.log.address;
+      const tierId = Number(event.args.tierId);
+      const key = { chainId: context.chain.id, hook, tierId, version };
+      const existingTier = await context.db.find(nftTier, key);
+      if (!existingTier) return;
+
+      const { resolvedUri } = await tierOf({ context, hook, tierId: event.args.tierId, version });
+      const metadata = await parseTierMetadata({ resolvedUri, encodedIpfsUri: event.args.encodedUri });
+
+      await context.db.update(nftTier, key).set({
+        encodedIpfsUri: event.args.encodedUri,
+        resolvedUri,
+        metadata: metadata ?? existingTier.metadata,
+      });
+    } catch (e) {
+      console.error("JB721TiersHook6:SetEncodedIpfsUri", e);
+    }
+  });
+
   ponder.on("JB721TiersHook6:RemoveTier", async ({ event, context }) => {
     try {
       const hook = event.log.address;
