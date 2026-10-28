@@ -389,3 +389,5 @@ for (const network of ["mainnet", "testnet"] as const) {
   ]) assert.ok(config.includes(fragment), fragment);
   assert.equal(config.split(`chain: DEFIFA_V2_DEPLOYMENTS.${network}.chain`).length - 1, 5);
 }
+// Receipt-backed: the earliest 2.0 contract's creation block per mainnet (deploy-all-v6 deployments/<chain>/).
+assert.deepEqual(Object.values(DEFIFA_V2_DEPLOYMENTS.mainnet.chain).map(({ startBlock }) => startBlock), [26280781, 518605659, 53137696, 158732986]);

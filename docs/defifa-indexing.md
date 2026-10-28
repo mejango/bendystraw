@@ -12,8 +12,9 @@ and `src/interfaces/IDefifaDeployer.sol` (source revision
 
 `@ballkidz/defifa@2.0.0` (deploy-all-v6 PR #250) is indexed end to end so a client can render every 2.0 game,
 721 and ERC-1155, without per-game RPC fan-out. 1.0.2 keeps only the NFT indexing below. All 2.0 contracts sit
-at the same address on every chain (`src/constants/defifa.ts`); start blocks are chain heads read before the
-deploy executed.
+at the same address on every chain (`src/constants/defifa.ts`). Mainnet start blocks are the receipt-backed
+creation blocks of each chain's earliest 2.0 contract; testnet start blocks are chain heads read before the
+testnet proposal, which has not executed yet.
 
 | Source | Address | Events |
 |---|---|---|

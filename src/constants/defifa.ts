@@ -22,8 +22,9 @@ export const DEFIFA_DEPLOYMENTS = {
 } as const;
 
 // @ballkidz/defifa@2.0.0, from deploy-all-v6's v6-deployment Safe (deploy-all-v6 PR #250). CREATE2 places every
-// contract at the same address on every chain. Start blocks are chain heads read before the deploy executed, so
-// they precede every 2.0 launch. 2.0 hooks keep tiers in DefifaTiersHookStore, not the canonical
+// contract at the same address on every chain. Mainnet start blocks are the receipt-backed creation block of each
+// chain's earliest 2.0 contract (deploy-all-v6 deployments/<chain>/). Testnet start blocks are chain heads read
+// before the testnet proposal, which has not executed yet; they precede every possible 2.0 launch. 2.0 hooks keep tiers in DefifaTiersHookStore, not the canonical
 // JB721TiersHookStore, so tier reads go to `store`.
 const DEFIFA_V2_CONTRACTS = {
   deployer: "0x32cd7d0c378a45a27cd7e361bce0ba882efe87a9",
@@ -39,10 +40,10 @@ export const DEFIFA_V2_DEPLOYMENTS = {
     ...DEFIFA_V2_CONTRACTS,
     address: DEFIFA_V2_CONTRACTS.deployer,
     chain: {
-      ethereum: { startBlock: 26238310 },
-      arbitrum: { startBlock: 516797195 },
-      base: { startBlock: 52882160 },
-      optimism: { startBlock: 158477445 },
+      ethereum: { startBlock: 26280781 },
+      arbitrum: { startBlock: 518605659 },
+      base: { startBlock: 53137696 },
+      optimism: { startBlock: 158732986 },
     },
   },
   testnet: {
