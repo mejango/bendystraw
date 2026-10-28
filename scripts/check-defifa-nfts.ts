@@ -391,3 +391,4 @@ for (const network of ["mainnet", "testnet"] as const) {
 }
 // Receipt-backed: the earliest 2.0 contract's creation block per mainnet (deploy-all-v6 deployments/<chain>/).
 assert.deepEqual(Object.values(DEFIFA_V2_DEPLOYMENTS.mainnet.chain).map(({ startBlock }) => startBlock), [26280781, 518605659, 53137696, 158732986]);
+assert.deepEqual(Object.values(DEFIFA_V2_DEPLOYMENTS.testnet.chain).map(({ startBlock }) => startBlock), [12015043, 323803586, 51506348, 50710273]);
